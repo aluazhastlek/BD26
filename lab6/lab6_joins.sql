@@ -206,3 +206,65 @@ HAVING AVG(e.salary) > 50000;
 --7.
     SELECT * FROM B RIGHT JOIN A ON A.id = B.id;
 --8. FULL OUTER JOIN is used when we need all rows from both tables, including unmatched rows.
+
+-- SELECT: Chooses which columns to display.
+-- FROM: Specifies the main table.
+-- AS: Gives a temporary name to a column or table.
+
+-- INNER JOIN: Returns only matching rows from both tables.
+-- LEFT JOIN: Returns all rows from the left table and matching rows from the right.
+-- RIGHT JOIN: Returns all rows from the right table and matching rows from the left.
+-- FULL JOIN: Returns all rows from both tables, including unmatched rows.
+-- CROSS JOIN: Returns all possible combinations of rows (N * M).
+-- SELF JOIN: Joins a table with itself, usually using two aliases.
+
+-- ON: Specifies the condition used to match rows during a JOIN.
+-- USING: Joins tables using a specified column with the same name in both tables.
+-- NATURAL JOIN: Automatically joins using all columns with matching names.
+
+-- WHERE: Filters rows after the JOIN and before grouping.
+-- AND: Requires both conditions to be true.
+-- OR: Requires at least one condition to be true.
+-- IS NULL: Checks for missing values.
+-- IS NOT NULL: Checks for non-NULL values.
+
+-- GROUP BY: Groups rows with the same values.
+-- HAVING: Filters groups after GROUP BY.
+-- COUNT(*): Counts all rows, including rows containing NULL values.
+-- COUNT(column): Counts only non-NULL values in that column.
+-- AVG(): Calculates the average value.
+-- SUM(): Calculates the total sum.
+-- MIN(): Returns the minimum value.
+-- MAX(): Returns the maximum value.
+
+-- UNION: Combines query results and removes duplicate rows.
+-- UNION ALL: Combines query results and keeps duplicate rows.
+
+-- ORDER BY: Sorts the result.
+-- ASC: Sorts in ascending order.
+-- DESC: Sorts in descending order.
+-- DISTINCT: Removes duplicate rows from the result.
+-- LIMIT: Limits the number of returned rows.
+
+-- LEFT JOIN + WHERE right_table.id IS NULL:
+-- Finds rows from the left table with no matching rows on the right.
+
+-- LEFT JOIN + COUNT(right_table.id) + GROUP BY:
+-- Counts related records, including groups with zero matches.
+
+-- ON vs WHERE with OUTER JOIN:
+-- ON filters matching conditions while preserving unmatched rows on the outer side.
+-- WHERE filters the joined result and may remove unmatched rows.
+
+-- ON vs WHERE with INNER JOIN:
+-- Placing the same filter in ON or WHERE gives the same result.
+
+-- RIGHT JOIN to LEFT JOIN:
+-- Swap the order of the tables and replace RIGHT JOIN with LEFT JOIN.
+
+-- SELECT * with ON: Keeps both join columns.
+-- SELECT * with USING: Displays the shared join column only once.
+-- SELECT * with NATURAL JOIN: Merges all same-named columns.
+
+-- UNION vs UNION ALL:
+-- UNION removes duplicate result rows; UNION ALL keeps them.
