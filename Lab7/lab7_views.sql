@@ -315,3 +315,231 @@ CREATE ROLE charlie LOGIN PASSWORD 'charlie123';
 GRANT viewer_role TO alice;
 GRANT analyst_role TO bob;
 GRANT manager_role TO charlie;
+
+-- STEP 0: DATABASE SETUP
+
+DROP VIEW IF EXISTS v_city_rank, v_tree, v_cat_totals CASCADE;
+DROP MATERIALIZED VIEW IF EXISTS mv_cat_totals;
+DROP TABLE IF EXISTS sales, categories CASCADE;
+
+CREATE TABLE categories (
+    cat_id INT PRIMARY KEY,
+    cat_name VARCHAR(14) NOT NULL,
+    parent_id INT REFERENCES categories
+);
+
+CREATE TABLE sales (
+    sale_id INT PRIMARY KEY,
+    cat_id INT REFERENCES categories,
+    city VARCHAR(10) NOT NULL,
+    amount INT NOT NULL
+);
+
+INSERT INTO categories VALUES
+(1, 'All goods', NULL),
+(2, 'Electronics', 1),
+(3, 'Furniture', 1),
+(4, 'Phones', 2),
+(5, 'Laptops', 2),
+(6, 'Chairs', 3),
+(7, 'Gaming', 4);
+
+SELECT setseed(0.7);
+
+INSERT INTO sales
+SELECT g,
+       4 + (g % 4),
+       (ARRAY['Almaty','Astana','Shymkent','Aktobe'])[1 + (g / 4) % 4],
+       500 + (random()*4000)::INT + 2500 * (((g / 4) + g) % 4)
+FROM generate_series(1, 300000) g;
+
+ANALYZE sales;
+
+
+-- PART A: MEASURING WHAT A MATERIALIZED VIEW BUYS
+
+-- A1: Create regular and materialized views
+
+CREATE VIEW v_cat_totals AS
+SELECT c.cat_id,
+       c.cat_name,
+       COUNT(s.sale_id) AS sales_count,
+       COALESCE(SUM(s.amount), 0) AS total_amount
+FROM categories c
+JOIN sales s ON c.cat_id = s.cat_id
+GROUP BY c.cat_id, c.cat_name;
+
+CREATE MATERIALIZED VIEW mv_cat_totals AS
+SELECT * FROM v_cat_totals;
+
+
+-- A2: Compare query execution times
+-- In DataGrip, check execution times in the query output.
+
+SELECT * FROM v_cat_totals;
+SELECT * FROM mv_cat_totals;
+
+
+-- A3: Compare execution plans and buffer usage
+
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT * FROM v_cat_totals;
+
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT * FROM mv_cat_totals;
+
+-- Regular view executes JOIN and GROUP BY again.
+-- Materialized view reads precomputed results.
+
+
+-- A4: Compare storage sizes
+
+SELECT
+    pg_size_pretty(pg_total_relation_size('sales')) AS sales_size,
+    pg_size_pretty(pg_total_relation_size('mv_cat_totals')) AS mv_size;
+
+
+-- A4: Insert a new sale
+
+INSERT INTO sales (sale_id, cat_id, city, amount)
+VALUES (300001, 7, 'Almaty', 100000);
+
+SELECT * FROM v_cat_totals
+WHERE cat_id = 7;
+
+SELECT * FROM mv_cat_totals
+WHERE cat_id = 7;
+
+-- Regular view shows updated data.
+-- Materialized view shows stale data.
+
+REFRESH MATERIALIZED VIEW mv_cat_totals;
+
+SELECT * FROM mv_cat_totals
+WHERE cat_id = 7;
+
+-- REFRESH updates the stored results.
+
+
+-- PART B: A VIEW THAT CALLS ITSELF
+
+-- B1: Create recursive view
+
+CREATE RECURSIVE VIEW v_tree
+(cat_id, cat_name, depth, path) AS
+
+SELECT cat_id,
+       cat_name,
+       1,
+       cat_name::TEXT
+FROM categories
+WHERE parent_id IS NULL
+
+UNION ALL
+
+SELECT c.cat_id,
+       c.cat_name,
+       t.depth + 1,
+       t.path || ' > ' || c.cat_name
+FROM categories c
+JOIN v_tree t ON c.parent_id = t.cat_id;
+
+
+-- B1: Display the complete category tree
+
+SELECT *
+FROM v_tree
+ORDER BY path;
+
+
+-- B1: Find the deepest category
+
+SELECT *
+FROM v_tree
+WHERE depth = (SELECT MAX(depth) FROM v_tree);
+
+-- Deepest category: Gaming, depth = 4.
+
+
+-- B2: Recursive view explanation
+-- Anchor query: WHERE parent_id IS NULL.
+-- Recursive query: JOIN v_tree t ON c.parent_id = t.cat_id.
+-- Recursion stops when no more child rows are found.
+
+
+-- B3: Inspect stored view definition
+
+SELECT pg_get_viewdef('v_tree', TRUE);
+
+-- PostgreSQL stores a recursive query using WITH RECURSIVE.
+
+
+-- B4: Attempt to update recursive view
+-- Expected error: recursive views are not automatically updatable.
+
+UPDATE v_tree
+SET cat_name = 'New Gaming'
+WHERE cat_id = 7;
+
+
+-- PART C: A VIEW THAT RANKS
+
+-- C1: Create city ranking view
+
+CREATE VIEW v_city_rank AS
+SELECT c.cat_name,
+       s.city,
+       SUM(s.amount) AS total,
+       RANK() OVER (
+           PARTITION BY c.cat_name
+           ORDER BY SUM(s.amount) DESC
+       ) AS rnk
+FROM sales s
+JOIN categories c ON c.cat_id = s.cat_id
+GROUP BY c.cat_name, s.city;
+
+
+-- C1: Find the best city in each category
+
+SELECT *
+FROM v_city_rank
+WHERE rnk = 1;
+
+-- PARTITION BY creates a separate ranking for each category.
+
+
+-- C2: Attempt window function in WHERE
+-- Expected error: window functions are not allowed in WHERE.
+
+SELECT c.cat_name,
+       s.city,
+       SUM(s.amount) AS total
+FROM sales s
+JOIN categories c ON c.cat_id = s.cat_id
+GROUP BY c.cat_name, s.city
+HAVING SUM(s.amount) > 0
+   AND RANK() OVER (
+       PARTITION BY c.cat_name
+       ORDER BY SUM(s.amount) DESC
+   ) = 1;
+
+
+-- C2: Correct solution using a subquery
+
+SELECT *
+FROM (
+    SELECT c.cat_name,
+           s.city,
+           SUM(s.amount) AS total,
+           RANK() OVER (
+               PARTITION BY c.cat_name
+               ORDER BY SUM(s.amount) DESC
+           ) AS rnk
+    FROM sales s
+    JOIN categories c ON c.cat_id = s.cat_id
+    GROUP BY c.cat_name, s.city
+) ranked
+WHERE rnk = 1;
+
+-- A view allows filtering by a computed window function
+-- in an outer SELECT statement.
